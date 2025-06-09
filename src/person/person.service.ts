@@ -1,14 +1,15 @@
 // src/person/person.service.ts
 import { Injectable, NotFoundException, BadRequestException, ConflictException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, ILike, Not } from 'typeorm';
+import { Repository, ILike, Not, FindManyOptions } from 'typeorm';
 import { Person, PersonRole } from './entities/person.entity';
 import { CreatePersonDto } from './dto/create-person.dto';
 import { UpdatePatchPersonDto } from './dto/update-patch-person.dto';
 import { UpdatePutPersonDto } from './dto/update-put-person.dto';
 import { City } from '../city/entities/city.entity';
-// Importar la interfaz desde el nuevo archivo
-import { PersonResponseDto } from './interfaces/person.interfaces'; // RUTA CORREGIDA
+import { PersonResponseDto } from './interfaces/person.interfaces';
+import { PaginationDto } from '../common/dto/pagination.dto'; 
+import { PaginatedResponseDto } from '../common/dto/paginated-response.dto'; 
 
 @Injectable()
 export class PersonService {
@@ -23,7 +24,6 @@ export class PersonService {
 
   private readonly defaultRelations = ['city', 'city.province', 'city.province.country'];
 
-  // Helper para mapear una entidad Person a PersonResponseDto
   private mapToResponseDto(person: Person): PersonResponseDto {
     return {
       id: person.id,
@@ -32,11 +32,9 @@ export class PersonService {
       email: person.email,
       birthDate: person.birthDate,
       role: person.role,
-      city: person.city ? { // Simplificar el objeto city para la respuesta
+      city: person.city ? {
         id: person.city.id,
         name: person.city.name,
-        // No incluir provincia/país aquí para evitar anidamiento excesivo,
-        // a menos que sea estrictamente necesario para este DTO.
       } : null,
       cityId: person.cityId,
     };
@@ -74,7 +72,6 @@ export class PersonService {
 
     const savedPerson = await this.personRepository.save(newPersonEntity);
     this.logger.log(`Persona creada con ID: ${savedPerson.id}`);
-    // Recargar con relaciones para asegurar que el DTO se mapee correctamente
     const reloadedPerson = await this.personRepository.findOne({ where: {id: savedPerson.id }, relations: this.defaultRelations });
     if (!reloadedPerson) {
         this.logger.error(`Error crítico: No se pudo recargar la persona creada con ID ${savedPerson.id}`);
@@ -83,10 +80,32 @@ export class PersonService {
     return this.mapToResponseDto(reloadedPerson);
   }
 
-  async findAll(): Promise<PersonResponseDto[]> {
-    this.logger.debug('Buscando todas las personas');
-    const persons = await this.personRepository.find({ relations: this.defaultRelations });
-    return persons.map(person => this.mapToResponseDto(person));
+  // MODIFICADO: Añadido paginationDto y PaginatedResponseDto como tipo de retorno
+  async findAll(paginationDto: PaginationDto): Promise<PaginatedResponseDto<PersonResponseDto>> {
+    const { page = 1, limit = 10, sortBy, sortOrder } = paginationDto;
+    const skip = (page - 1) * limit;
+
+    const findOptions: FindManyOptions<Person> = {
+      relations: this.defaultRelations,
+      skip: skip,
+      take: limit,
+    };
+
+    if (sortBy) {
+      const allowedSortFields = ['id', 'firstName', 'lastName', 'email', 'role', 'birthDate', 'cityId'];
+      if (!allowedSortFields.includes(sortBy)) {
+        throw new BadRequestException(`El campo de ordenamiento '${sortBy}' no es válido.`);
+      }
+      findOptions.order = { [sortBy]: sortOrder || 'ASC' };
+    } else {
+      findOptions.order = { id: 'ASC' };
+    }
+
+    const [persons, total] = await this.personRepository.findAndCount(findOptions);
+
+    const mappedPersons = persons.map(person => this.mapToResponseDto(person));
+
+    return new PaginatedResponseDto<PersonResponseDto>(mappedPersons, total, page, limit);
   }
 
   async findOne(id: number, loadRelations: boolean = true): Promise<PersonResponseDto> {
@@ -114,10 +133,9 @@ export class PersonService {
     this.logger.debug(`Actualizando (PATCH) persona ID: ${id}`);
     const { cityId, newPassword, email, birthDate, ...updateData } = updateDto;
 
-    // Usar preload para cargar la entidad y fusionar los datos del DTO
     const personToUpdate = await this.personRepository.preload({
       id: id,
-      ...updateData, // firstName, lastName, role
+      ...updateData,
       ...(birthDate !== undefined && { birthDate: birthDate ? new Date(birthDate) : null }),
     });
 
@@ -136,17 +154,17 @@ export class PersonService {
     }
 
     if (newPassword) {
-      personToUpdate.password = newPassword; // La entidad hasheará con @BeforeUpdate
+      personToUpdate.password = newPassword;
     }
 
-    if (cityId !== undefined) { // Permite establecer cityId a null para desasociar
+    if (cityId !== undefined) {
       if (cityId === null) {
         personToUpdate.city = null;
         personToUpdate.cityId = null;
       } else {
         const cityEntity = await this.cityRepository.findOne({ where: { id: cityId } });
         if (!cityEntity) {
-          this.logger.warn(`Ciudad ID ${cityId} no encontrada para PATCH.`);
+          this.logger.warn(`Ciudad con ID ${cityId} no encontrada.`);
           throw new NotFoundException(`Ciudad con ID ${cityId} no encontrada.`);
         }
         personToUpdate.city = cityEntity;
@@ -163,43 +181,40 @@ export class PersonService {
 
   async updatePut(id: number, updateDto: UpdatePutPersonDto): Promise<PersonResponseDto> {
     this.logger.debug(`Actualizando (PUT) persona ID: ${id}`);
-    const { cityId, email, birthDate, firstName, lastName, role } = updateDto;
-
-    let personToUpdate = await this.personRepository.findOne({ where: { id }, relations: ['city'] }); // Cargar ciudad para la lógica
+    let personToUpdate = await this.personRepository.findOne({ where: { id }, relations: ['city'] });
     if (!personToUpdate) {
       this.logger.warn(`Persona ID ${id} no encontrada para PUT.`);
       throw new NotFoundException(`Persona con ID ${id} no encontrada.`);
     }
 
-    if (email !== personToUpdate.email) {
-      const existing = await this.personRepository.findOne({ where: { email, id: Not(id) } });
+    if (updateDto.email !== personToUpdate.email) {
+      const existing = await this.personRepository.findOne({ where: { email: updateDto.email, id: Not(id) } });
       if (existing) {
-        this.logger.warn(`Email '${email}' ya en uso para PUT.`);
-        throw new ConflictException(`El email '${email}' ya está en uso por otra persona.`);
+        this.logger.warn(`Email '${updateDto.email}' ya en uso para PUT.`);
+        throw new ConflictException(`El email '${updateDto.email}' ya está en uso por otra persona.`);
       }
     }
 
-    personToUpdate.firstName = firstName;
-    personToUpdate.lastName = lastName;
-    personToUpdate.email = email;
-    personToUpdate.role = role;
-    personToUpdate.birthDate = birthDate ? new Date(birthDate) : null;
+    personToUpdate.firstName = updateDto.firstName;
+    personToUpdate.lastName = updateDto.lastName;
+    personToUpdate.email = updateDto.email;
+    personToUpdate.role = updateDto.role;
+    personToUpdate.birthDate = updateDto.birthDate ? new Date(updateDto.birthDate) : null;
 
-    if (cityId !== undefined) {
-      if (cityId === null) {
+    if (updateDto.cityId !== undefined) {
+      if (updateDto.cityId === null) {
         personToUpdate.city = null;
         personToUpdate.cityId = null;
-      } else if (personToUpdate.cityId !== cityId) { // Solo buscar si el cityId realmente cambia
-        const cityEntity = await this.cityRepository.findOne({ where: { id: cityId } });
+      } else if (personToUpdate.cityId !== updateDto.cityId) {
+        const cityEntity = await this.cityRepository.findOne({ where: { id: updateDto.cityId } });
         if (!cityEntity) {
-          this.logger.warn(`Ciudad ID ${cityId} no encontrada para PUT.`);
-          throw new NotFoundException(`Ciudad con ID ${cityId} no encontrada.`);
+          this.logger.warn(`Ciudad ID ${updateDto.cityId} no encontrada para PUT.`);
+          throw new NotFoundException(`Ciudad con ID ${updateDto.cityId} no encontrada.`);
         }
         personToUpdate.city = cityEntity;
         personToUpdate.cityId = cityEntity.id;
       }
     }
-    // La contraseña no se actualiza directamente con PUT en esta implementación.
 
     const updatedPersonEntity = await this.personRepository.save(personToUpdate);
     this.logger.log(`Persona ID ${updatedPersonEntity.id} actualizada (PUT).`);
@@ -220,19 +235,36 @@ export class PersonService {
     return { message: `Persona con ID ${id} eliminada correctamente.` };
   }
 
-  async findByName(nameQuery: string): Promise<PersonResponseDto[]> {
-    this.logger.debug(`Buscando personas por nombre: ${nameQuery}`);
-    if (!nameQuery || nameQuery.trim() === "") {
-      throw new BadRequestException('Debe proporcionar un término de búsqueda.');
-    }
-    const persons = await this.personRepository.find({
+  // MODIFICADO: Añadido paginationDto y PaginatedResponseDto como tipo de retorno
+  async findByName(nameQuery: string, paginationDto: PaginationDto): Promise<PaginatedResponseDto<PersonResponseDto>> {
+    const { page = 1, limit = 10, sortBy, sortOrder } = paginationDto;
+    const skip = (page - 1) * limit;
+
+    const findOptions: FindManyOptions<Person> = {
       where: [
         { firstName: ILike(`%${nameQuery}%`) },
         { lastName: ILike(`%${nameQuery}%`) },
       ],
       relations: this.defaultRelations,
-    });
-    this.logger.log(`Encontradas ${persons.length} personas para: ${nameQuery}`);
-    return persons.map(person => this.mapToResponseDto(person));
+      skip: skip,
+      take: limit,
+    };
+
+    if (sortBy) {
+      const allowedSortFields = ['id', 'firstName', 'lastName', 'email', 'role', 'birthDate', 'cityId'];
+      if (!allowedSortFields.includes(sortBy)) {
+        throw new BadRequestException(`El campo de ordenamiento '${sortBy}' no es válido.`);
+      }
+      findOptions.order = { [sortBy]: sortOrder || 'ASC' };
+    } else {
+      findOptions.order = { id: 'ASC' };
+    }
+
+    const [persons, total] = await this.personRepository.findAndCount(findOptions);
+
+    this.logger.log(`Encontradas ${persons.length} personas para: ${nameQuery} (Total: ${total})`);
+    const mappedPersons = persons.map(person => this.mapToResponseDto(person));
+
+    return new PaginatedResponseDto<PersonResponseDto>(mappedPersons, total, page, limit);
   }
 }

@@ -1,9 +1,10 @@
 // src/province/entities/province.entity.ts
-import { Entity, PrimaryGeneratedColumn, Column, ManyToOne, OneToMany, JoinColumn } from 'typeorm';
+import { Entity, PrimaryGeneratedColumn, Column, ManyToOne, OneToMany, JoinColumn, Unique } from 'typeorm';
 import { Country } from '../../country/entities/country.entity'; 
 import { City } from '../../city/entities/city.entity';   
 
 @Entity('provinces')
+@Unique(['latitude', 'longitude'])
 export class Province {
   @PrimaryGeneratedColumn()
   id!: number;

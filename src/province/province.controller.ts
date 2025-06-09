@@ -1,19 +1,23 @@
 // src/province/province.controller.ts
 import {
   Controller, Get, Post, Body, Put, Patch, Param, Delete,
-  ParseIntPipe, UseGuards, HttpCode, HttpStatus, Logger, Query
+  ParseIntPipe, UseGuards, HttpCode, HttpStatus, Logger, Query, BadRequestException
 } from '@nestjs/common';
 import { ProvincesService } from './province.service';
 import { CreateProvinceDto } from './dto/create-province.dto';
-import { UpdateProvinceDto } from './dto/update-patch-province.dto'; // Para PATCH
-import { UpdatePutProvinceDto } from './dto/update-put-province.dto'; // Para PUT
+import { UpdateProvinceDto } from './dto/update-patch-province.dto';
+import { UpdatePutProvinceDto } from './dto/update-put-province.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { PersonRole } from '../person/entities/person.entity';
+import { ProvinceResponseDto } from './interfaces/province.interfaces';
+
+import { PaginationDto } from '../common/dto/pagination.dto'; // NUEVO
+import { PaginatedResponseDto } from '../common/dto/paginated-response.dto'; // NUEVO
 
 @Controller('provinces')
-@UseGuards(JwtAuthGuard) // Proteger todos los endpoints de provincias
+@UseGuards(JwtAuthGuard)
 export class ProvincesController {
   private readonly logger = new Logger(ProvincesController.name);
 
@@ -21,35 +25,36 @@ export class ProvincesController {
 
   @Post()
   @UseGuards(RolesGuard)
-  @Roles(PersonRole.ADMIN) // Solo administradores pueden crear provincias
+  @Roles(PersonRole.ADMIN)
   @HttpCode(HttpStatus.CREATED)
-  create(@Body() createProvinceDto: CreateProvinceDto) {
+  create(@Body() createProvinceDto: CreateProvinceDto): Promise<ProvinceResponseDto> {
     this.logger.log(`Recibida solicitud para crear provincia: ${JSON.stringify(createProvinceDto)}`);
-    return this.provincesService.create(createProvinceDto);
+    return this.provincesService.create(createProvinceDto, false) as Promise<ProvinceResponseDto>;
   }
 
   @Get()
-  // Cualquier usuario autenticado puede listar provincias
-  findAll(@Query('loadRelations') loadRelations?: string) {
-    this.logger.log('Recibida solicitud para obtener todas las provincias.');
-    const shouldLoadRelations = loadRelations === 'true';
-    return this.provincesService.findAll(shouldLoadRelations);
+  findAll(@Query() paginationDto: PaginationDto): Promise<PaginatedResponseDto<ProvinceResponseDto>> { // MODIFICADO
+    this.logger.log(`Recibida solicitud para obtener todas las provincias con paginación: ${JSON.stringify(paginationDto)}`);
+    return this.provincesService.findAll(paginationDto); // MODIFICADO
   }
 
   @Get('search')
-  searchByName(@Query('name') name: string) {
+  async searchByName( // MODIFICADO (se añadió async)
+    @Query() paginationDto: PaginationDto // NUEVO: todos los params de búsqueda van en paginationDto
+  ): Promise<PaginatedResponseDto<ProvinceResponseDto>> { // MODIFICADO
+    const name = paginationDto.name; // Obtiene 'name' del DTO de paginación
+    this.logger.log(`Buscando provincias por nombre: ${name} con paginación: ${JSON.stringify(paginationDto)}`);
+
     if (!name || name.trim() === '') {
-        return [];
+      throw new BadRequestException('El término de búsqueda "name" no puede estar vacío para esta operación.');
     }
-    return this.provincesService.searchByName(name);
+    return this.provincesService.searchByName(name, paginationDto); // MODIFICADO
   }
 
   @Get(':id')
-  // Cualquier usuario autenticado puede ver una provincia específica
-  findOne(@Param('id', ParseIntPipe) id: number, @Query('loadRelations') loadRelations?: string) {
+  findOne(@Param('id', ParseIntPipe) id: number): Promise<ProvinceResponseDto> {
     this.logger.log(`Recibida solicitud para obtener provincia con ID: ${id}`);
-    const shouldLoadRelations = loadRelations === 'true';
-    return this.provincesService.findOne(id, shouldLoadRelations);
+    return this.provincesService.findOne(id, false) as Promise<ProvinceResponseDto>;
   }
 
   @Put(':id')
@@ -58,7 +63,7 @@ export class ProvincesController {
   updatePut(
     @Param('id', ParseIntPipe) id: number,
     @Body() updatePutProvinceDto: UpdatePutProvinceDto,
-  ) {
+  ): Promise<ProvinceResponseDto> {
     this.logger.log(`Recibida solicitud PUT para reemplazar provincia ID: ${id}`);
     return this.provincesService.updatePut(id, updatePutProvinceDto);
   }
@@ -69,7 +74,7 @@ export class ProvincesController {
   updatePatch(
     @Param('id', ParseIntPipe) id: number,
     @Body() updatePatchProvinceDto: UpdateProvinceDto,
-  ) {
+  ): Promise<ProvinceResponseDto> {
     this.logger.log(`Recibida solicitud PATCH para actualizar provincia ID: ${id}`);
     return this.provincesService.updatePatch(id, updatePatchProvinceDto);
   }

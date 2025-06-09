@@ -1,12 +1,15 @@
 // src/province/province.service.ts
 import { Injectable, NotFoundException, ConflictException, Logger, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, ILike, Not } from 'typeorm';
+import { Repository, ILike, Not, FindManyOptions } from 'typeorm';
 import { Province } from './entities/province.entity';
 import { Country } from '../country/entities/country.entity';
 import { CreateProvinceDto } from './dto/create-province.dto';
 import { UpdateProvinceDto } from './dto/update-patch-province.dto';
 import { UpdatePutProvinceDto } from './dto/update-put-province.dto';
+import { ProvinceResponseDto } from './interfaces/province.interfaces';
+import { PaginationDto } from '../common/dto/pagination.dto'; 
+import { PaginatedResponseDto } from '../common/dto/paginated-response.dto'; 
 
 @Injectable()
 export class ProvincesService {
@@ -19,7 +22,8 @@ export class ProvincesService {
     private readonly countryRepository: Repository<Country>,
   ) {}
 
-  private readonly defaultRelations = ['country', 'cities'];
+  // defaultRelations solo para 'country' en ProvinceResponseDto
+  private readonly defaultRelations = ['country'];
 
   private async findCountryById(countryId: number): Promise<Country> {
     this.logger.debug(`Buscando país ID: ${countryId}`);
@@ -31,7 +35,24 @@ export class ProvincesService {
     return country;
   }
 
-  async create(createProvinceDto: CreateProvinceDto): Promise<Province> {
+  private mapToResponseDto(province: Province): ProvinceResponseDto {
+    if (!province.country) {
+      this.logger.error(`Provincia ID ${province.id} sin relación 'country' cargada para DTO.`);
+      throw new Error('La relación de país no está cargada para la provincia.');
+    }
+    return {
+      id: province.id,
+      name: province.name,
+      latitude: province.latitude,
+      longitude: province.longitude,
+      country: {
+        id: province.country.id,
+        name: province.country.name,
+      },
+    };
+  }
+
+  async create(createProvinceDto: CreateProvinceDto, returnEntity: boolean = false): Promise<Province | ProvinceResponseDto> {
     this.logger.debug(`Creando provincia: ${createProvinceDto.name}, Lat: ${createProvinceDto.latitude}, Lon: ${createProvinceDto.longitude}`);
     const country = await this.findCountryById(createProvinceDto.countryId);
 
@@ -40,7 +61,9 @@ export class ProvincesService {
     });
     if (existingByCoords) {
       this.logger.log(`Provincia en Lat: ${createProvinceDto.latitude}, Lon: ${createProvinceDto.longitude} (Nombre: ${existingByCoords.name}) ya existe. Retornando existente.`);
-      return this.findOne(existingByCoords.id, true);
+      const reloadedExisting = await this.provinceRepository.findOne({ where: { id: existingByCoords.id }, relations: ['country'] });
+      if (!reloadedExisting) throw new NotFoundException('Error al recargar provincia existente.');
+      return returnEntity ? reloadedExisting : this.mapToResponseDto(reloadedExisting);
     }
 
     const existingNominal = await this.provinceRepository.findOne({
@@ -61,14 +84,17 @@ export class ProvincesService {
     try {
         const savedProvince = await this.provinceRepository.save(province);
         this.logger.log(`Provincia '${savedProvince.name}' creada ID: ${savedProvince.id}`);
-        return this.findOne(savedProvince.id, true);
+        const reloadedProvince = await this.provinceRepository.findOne({ where: { id: savedProvince.id }, relations: ['country'] });
+        if (!reloadedProvince) throw new NotFoundException('Error al recargar la provincia creada.');
+        return returnEntity ? reloadedProvince : this.mapToResponseDto(reloadedProvince);
     } catch (error: any) {
         if (error.code === '23505') {
             this.logger.warn(`Conflicto BD al guardar provincia: ${error.detail}. Buscando de nuevo...`);
             const raceCondition = await this.provinceRepository.findOne({
-                where: { latitude: createProvinceDto.latitude, longitude: createProvinceDto.longitude }
+                where: { latitude: createProvinceDto.latitude, longitude: createProvinceDto.longitude },
+                relations: ['country']
             });
-            if (raceCondition) return this.findOne(raceCondition.id, true);
+            if (raceCondition) return returnEntity ? raceCondition : this.mapToResponseDto(raceCondition);
             throw new ConflictException(`Ubicación (lat/lon) para esta provincia ya existe.`);
         }
         this.logger.error(`Error al guardar provincia: ${error.message}`, error.stack);
@@ -76,46 +102,92 @@ export class ProvincesService {
     }
   }
 
-  async findAll(loadRelations: boolean = true): Promise<Province[]> {
-    this.logger.debug('Buscando todas las provincias');
-    return this.provinceRepository.find({ relations: loadRelations ? this.defaultRelations : ['country'] });
+  // MODIFICADO: Añadido paginationDto
+  async findAll(paginationDto: PaginationDto): Promise<PaginatedResponseDto<ProvinceResponseDto>> {
+    const { page = 1, limit = 10, sortBy, sortOrder } = paginationDto;
+    const skip = (page - 1) * limit;
+
+    const findOptions: FindManyOptions<Province> = {
+      relations: ['country'], // Solo carga 'country'
+      skip: skip,
+      take: limit,
+    };
+
+    if (sortBy) {
+      const allowedSortFields = ['id', 'name', 'latitude', 'longitude', 'countryId'];
+      if (!allowedSortFields.includes(sortBy)) {
+        throw new BadRequestException(`El campo de ordenamiento '${sortBy}' no es válido.`);
+      }
+      findOptions.order = { [sortBy]: sortOrder || 'ASC' };
+    } else {
+      findOptions.order = { id: 'ASC' };
+    }
+
+    const [provinces, total] = await this.provinceRepository.findAndCount(findOptions);
+    const mappedProvinces = provinces.map(province => this.mapToResponseDto(province));
+    return new PaginatedResponseDto<ProvinceResponseDto>(mappedProvinces, total, page, limit);
   }
 
-  async findOne(id: number, loadRelations: boolean = true): Promise<Province> {
+  async findOne(id: number, loadOtherRelations: boolean = false, returnEntity: boolean = false): Promise<Province | ProvinceResponseDto> {
     this.logger.debug(`Buscando provincia ID: ${id}`);
     const province = await this.provinceRepository.findOne({
       where: { id },
-      relations: loadRelations ? this.defaultRelations : ['country'],
+      relations: ['country'], // Solo carga 'country'
     });
     if (!province) {
       this.logger.warn(`Provincia ID ${id} no encontrada.`);
       throw new NotFoundException(`Provincia con ID ${id} no encontrada.`);
     }
-    return province;
+    return returnEntity ? province : this.mapToResponseDto(province);
   }
 
-  async findOneByNameAndCountryId(name: string, countryId: number, loadRelations: boolean = false): Promise<Province | null> {
+  // MODIFICADO: Añadido paginationDto
+  async findOneByNameAndCountryId(name: string, countryId: number, loadOtherRelations: boolean = false, returnEntity: boolean = false): Promise<Province | ProvinceResponseDto | null> {
     this.logger.debug(`Buscando provincia: ${name}, país ID: ${countryId}`);
-    return this.provinceRepository.findOne({
+    const province = await this.provinceRepository.findOne({
       where: { name, countryId },
-      relations: loadRelations ? this.defaultRelations : ['country'],
+      relations: ['country'], // Solo carga 'country'
     });
+    return province ? (returnEntity ? province : this.mapToResponseDto(province)) : null;
   }
 
-  async searchByName(term: string, loadRelations: boolean = false): Promise<Province[]> {
+  // MODIFICADO: Añadido paginationDto
+  async searchByName(term: string, paginationDto: PaginationDto): Promise<PaginatedResponseDto<ProvinceResponseDto>> {
     this.logger.debug(`Buscando provincias por término: ${term}`);
     if (!term || term.trim() === "") {
-      throw new BadRequestException('Término de búsqueda vacío.');
+      throw new BadRequestException('El término de búsqueda no puede estar vacío.');
     }
-    return this.provinceRepository.find({
+
+    const { page = 1, limit = 10, sortBy, sortOrder } = paginationDto;
+    const skip = (page - 1) * limit;
+
+    const findOptions: FindManyOptions<Province> = {
       where: { name: ILike(`%${term}%`) },
-      relations: loadRelations ? this.defaultRelations : ['country'],
-    });
+      relations: ['country'], // Solo carga 'country'
+      skip: skip,
+      take: limit,
+    };
+
+    if (sortBy) {
+      const allowedSortFields = ['id', 'name', 'latitude', 'longitude', 'countryId'];
+      if (!allowedSortFields.includes(sortBy)) {
+        throw new BadRequestException(`El campo de ordenamiento '${sortBy}' no es válido.`);
+      }
+      findOptions.order = { [sortBy]: sortOrder || 'ASC' };
+    } else {
+      findOptions.order = { id: 'ASC' };
+    }
+
+    const [provinces, total] = await this.provinceRepository.findAndCount(findOptions);
+    const mappedProvinces = provinces.map(province => this.mapToResponseDto(province));
+    return new PaginatedResponseDto<ProvinceResponseDto>(mappedProvinces, total, page, limit);
   }
 
-  async updatePut(id: number, updateDto: UpdatePutProvinceDto): Promise<Province> {
+  async updatePut(id: number, updateDto: UpdatePutProvinceDto): Promise<ProvinceResponseDto> {
     this.logger.debug(`Actualizando (PUT) provincia ID: ${id}`);
-    const provinceToUpdate = await this.findOne(id, false);
+    const provinceToUpdate = await this.provinceRepository.findOne({ where: {id}, relations: ['country'] });
+    if (!provinceToUpdate) throw new NotFoundException(`Provincia con ID ${id} no encontrada.`);
+
     const country = await this.findCountryById(updateDto.countryId);
 
     if (updateDto.latitude !== provinceToUpdate.latitude || updateDto.longitude !== provinceToUpdate.longitude) {
@@ -139,10 +211,12 @@ export class ProvincesService {
 
     const updated = await this.provinceRepository.save(provinceToUpdate);
     this.logger.log(`Provincia ID ${updated.id} actualizada (PUT).`);
-    return this.findOne(updated.id, true);
+    const reloadedUpdated = await this.provinceRepository.findOne({ where: { id: updated.id }, relations: ['country'] });
+    if (!reloadedUpdated) throw new NotFoundException('Error al recargar la provincia actualizada.');
+    return this.mapToResponseDto(reloadedUpdated);
   }
 
-  async updatePatch(id: number, updateDto: UpdateProvinceDto): Promise<Province> {
+  async updatePatch(id: number, updateDto: UpdateProvinceDto): Promise<ProvinceResponseDto> {
     this.logger.debug(`Actualizando (PATCH) provincia ID: ${id}`);
     const provinceToUpdate = await this.provinceRepository.findOne({ where: {id}, relations: ['country'] });
     if (!provinceToUpdate) {
@@ -173,16 +247,22 @@ export class ProvincesService {
         });
         if (existing) throw new ConflictException(`Provincia '${provinceToUpdate.name}' ya existe en el país.`);
     }
-    // georefId eliminado
 
     const updated = await this.provinceRepository.save(provinceToUpdate);
     this.logger.log(`Provincia ID ${updated.id} actualizada (PATCH).`);
-    return this.findOne(updated.id, true);
+    const reloadedUpdated = await this.provinceRepository.findOne({ where: { id: updated.id }, relations: ['country'] });
+    if (!reloadedUpdated) throw new NotFoundException('Error al recargar la provincia actualizada.');
+    return this.mapToResponseDto(reloadedUpdated);
   }
 
   async remove(id: number): Promise<{ message: string }> {
     this.logger.debug(`Eliminando provincia ID: ${id}`);
-    const province = await this.findOne(id, true);
+    const province = await this.provinceRepository.findOne({ where: {id}, relations: ['cities'] });
+    if (!province) {
+        this.logger.warn(`Provincia ID ${id} no encontrada para eliminar.`);
+        throw new NotFoundException(`Provincia con ID ${id} no encontrada.`);
+    }
+
     if (province.cities && province.cities.length > 0) {
       this.logger.warn(`No se puede eliminar provincia ID ${id}, tiene ciudades asociadas.`);
       throw new ConflictException(`No se puede eliminar provincia '${province.name}', tiene ciudades asociadas.`);

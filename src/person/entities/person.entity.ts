@@ -51,10 +51,10 @@ export class Person {
 
   @ManyToOne(() => City, (city) => city.persons, { nullable: true, onDelete: 'SET NULL', eager: false })
   @JoinColumn({ name: 'cityId' })
-  city!: City | null;
+  city!: City | null; // <-- Ya es 'City | null', indicando que puede ser nulo
 
   @Column({ type: 'int', name: 'cityId', nullable: true })
-  cityId!: number | null;
+  cityId!: number | null; // <-- Ya es 'number | null', indicando que puede ser nulo
 
   @BeforeInsert()
   @BeforeUpdate()

@@ -1,12 +1,15 @@
 // src/city/city.service.ts
 import { Injectable, NotFoundException, Logger, ConflictException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, ILike, Not, FindOptionsWhere } from 'typeorm'; // Importar FindOptionsWhere
+import { Repository, ILike, Not, FindManyOptions, FindOptionsWhere } from 'typeorm';
 import { City } from './entities/city.entity';
 import { Province } from '../province/entities/province.entity';
 import { CreateCityDto } from './dto/create-city.dto';
 import { UpdateCityDto } from './dto/update-patch-city.dto';
 import { UpdatePutCityDto } from './dto/update-put-city.dto';
+import { CityResponseDto } from './interfaces/city.interfaces';
+import { PaginationDto } from '../common/dto/pagination.dto';
+import { PaginatedResponseDto } from '../common/dto/paginated-response.dto'; 
 
 @Injectable()
 export class CitiesService {
@@ -19,6 +22,7 @@ export class CitiesService {
     private readonly provinceRepository: Repository<Province>,
   ) {}
 
+  // defaultRelations solo para 'province' y 'province.country' en CityResponseDto
   private readonly defaultRelations = ['province', 'province.country'];
 
   private async findProvinceById(provinceId: number): Promise<Province> {
@@ -34,7 +38,28 @@ export class CitiesService {
     return province;
   }
 
-  async create(createCityDto: CreateCityDto): Promise<City> {
+  private mapToResponseDto(city: City): CityResponseDto {
+    if (!city.province || !city.province.country) {
+      this.logger.error(`Ciudad ID ${city.id} sin relación 'province' o 'country' cargada para DTO.`);
+      throw new Error('Las relaciones de provincia/país no están cargadas para la ciudad.');
+    }
+    return {
+      id: city.id,
+      name: city.name,
+      latitude: city.latitude,
+      longitude: city.longitude,
+      province: {
+        id: city.province.id,
+        name: city.province.name,
+        // country: {
+        //   id: city.province.country.id,
+        //   name: city.province.country.name,
+        // },
+      },
+    };
+  }
+
+  async create(createCityDto: CreateCityDto, returnEntity: boolean = false): Promise<City | CityResponseDto> {
     this.logger.debug(`Intentando crear ciudad: ${createCityDto.name}, Lat: ${createCityDto.latitude}, Lon: ${createCityDto.longitude}`);
     const province = await this.findProvinceById(createCityDto.provinceId);
 
@@ -47,15 +72,16 @@ export class CitiesService {
 
     if (existingCityByCoords) {
       this.logger.log(`Ciudad en Lat: ${createCityDto.latitude}, Lon: ${createCityDto.longitude} (Nombre: ${existingCityByCoords.name}) ya existe. Se omite creación y se retorna la existente.`);
-      return this.findOne(existingCityByCoords.id, true);
+      const reloadedExisting = await this.cityRepository.findOne({ where: { id: existingCityByCoords.id }, relations: ['province', 'province.country'] });
+      if (!reloadedExisting) throw new NotFoundException('Error al recargar ciudad existente.');
+      return returnEntity ? reloadedExisting : this.mapToResponseDto(reloadedExisting);
     }
 
     const existingNominalCity = await this.cityRepository.findOne({
-        where: { name: createCityDto.name, provinceId: createCityDto.provinceId }
+      where: { name: createCityDto.name, provinceId: createCityDto.provinceId }
     });
     if (existingNominalCity) {
         this.logger.warn(`Conflicto nominal: La ciudad '${createCityDto.name}' ya existe en la provincia '${province.name}' (pero con diferentes coordenadas).`);
-        // throw new ConflictException(`Una ciudad llamada '${createCityDto.name}' ya existe en la provincia '${province.name}'.`);
     }
 
     const city = this.cityRepository.create({
@@ -64,20 +90,22 @@ export class CitiesService {
       provinceId: province.id,
       latitude: createCityDto.latitude,
       longitude: createCityDto.longitude,
-      // georefId: createCityDto.georefId || null, // georefId eliminado
     });
 
     try {
         const savedCity = await this.cityRepository.save(city);
         this.logger.log(`Ciudad creada ID: ${savedCity.id}, Nombre: ${savedCity.name}, Lat: ${savedCity.latitude}, Lon: ${savedCity.longitude}`);
-        return this.findOne(savedCity.id, true);
+        const reloadedCity = await this.cityRepository.findOne({ where: {id: savedCity.id }, relations: ['province', 'province.country'] });
+        if (!reloadedCity) throw new NotFoundException('No se pudo recargar la ciudad creada.');
+        return returnEntity ? reloadedCity : this.mapToResponseDto(reloadedCity);
     } catch (error: any) {
         if (error.code === '23505') {
             this.logger.warn(`Conflicto de BD al guardar ciudad: ${error.detail}. Intentando encontrarla...`);
             const raceConditionCity = await this.cityRepository.findOne({
-                where: { latitude: createCityDto.latitude, longitude: createCityDto.longitude }
+                where: { latitude: createCityDto.latitude, longitude: createCityDto.longitude },
+                relations: ['province', 'province.country']
             });
-            if (raceConditionCity) return this.findOne(raceConditionCity.id, true);
+            if (raceConditionCity) return returnEntity ? raceConditionCity : this.mapToResponseDto(raceConditionCity);
             throw new ConflictException(`La ubicación (lat/lon) para esta ciudad ya existe.`);
         }
         this.logger.error(`Error al guardar la ciudad: ${error.message}`, error.stack);
@@ -85,111 +113,145 @@ export class CitiesService {
     }
   }
 
-  async findAll(): Promise<City[]> {
-    this.logger.debug('Buscando todas las ciudades');
-    return this.cityRepository.find({ relations: this.defaultRelations });
+  // MODIFICADO: Añadido paginationDto
+  async findAll(paginationDto: PaginationDto): Promise<PaginatedResponseDto<CityResponseDto>> {
+    const { page = 1, limit = 10, sortBy, sortOrder } = paginationDto;
+    const skip = (page - 1) * limit;
+
+    const findOptions: FindManyOptions<City> = {
+      relations: this.defaultRelations,
+      skip: skip,
+      take: limit,
+    };
+
+    if (sortBy) {
+      const allowedSortFields = ['id', 'name', 'latitude', 'longitude', 'provinceId'];
+      if (!allowedSortFields.includes(sortBy)) {
+        throw new BadRequestException(`El campo de ordenamiento '${sortBy}' no es válido.`);
+      }
+      findOptions.order = { [sortBy]: sortOrder || 'ASC' };
+    } else {
+      findOptions.order = { id: 'ASC' };
+    }
+
+    const [cities, total] = await this.cityRepository.findAndCount(findOptions);
+    const mappedCities = cities.map(city => this.mapToResponseDto(city));
+    return new PaginatedResponseDto<CityResponseDto>(mappedCities, total, page, limit);
   }
 
-  async findOne(id: number, loadRelations: boolean = true): Promise<City> {
+  async findOne(id: number, loadOtherRelations: boolean = false, returnEntity: boolean = false): Promise<City | CityResponseDto> {
     this.logger.debug(`Buscando ciudad ID: ${id}`);
     const city = await this.cityRepository.findOne({
       where: { id },
-      relations: loadRelations ? this.defaultRelations : ['province'],
+      relations: ['province', 'province.country'], // Siempre carga para DTO
     });
     if (!city) {
       this.logger.warn(`Ciudad ID ${id} no encontrada.`);
       throw new NotFoundException(`Ciudad con ID ${id} no encontrada.`);
     }
-    return city;
+    return returnEntity ? city : this.mapToResponseDto(city);
   }
 
-  async searchByName(term: string): Promise<City[]> {
-    this.logger.debug(`Buscando ciudades por término: ${term}`);
-    if (!term || term.trim() === "") {
-      throw new BadRequestException('El término de búsqueda no puede estar vacío.');
-    }
-    const cities = await this.cityRepository.find({
-      where: {
-        name: ILike(`%${term}%`),
-      },
-      relations: this.defaultRelations,
-    });
-    this.logger.log(`Encontradas ${cities.length} ciudades para el término: ${term}`);
-    return cities;
-  }
-
-  async findOneByNameAndProvinceName(cityName: string, provinceName: string): Promise<City | null> {
+  async findOneByNameAndProvinceName(cityName: string, provinceName: string, returnEntity: boolean = false): Promise<City | CityResponseDto | null> {
     this.logger.debug(`Buscando ciudad por nombre '${cityName}'${provinceName ? ` en provincia '${provinceName}'` : ''}`);
-    
-    const queryOptions: FindOptionsWhere<City> | FindOptionsWhere<City>[] = {
-        name: cityName, // Búsqueda exacta por nombre de ciudad
+
+    const queryOptions: FindOptionsWhere<City> = {
+        name: cityName,
     };
 
     if (provinceName) {
-      // Si se proporciona provinceName, necesitamos hacer un join o una subconsulta.
-      // La forma más directa con TypeORM es filtrar por la relación.
-      return this.cityRepository.findOne({
+      const city = await this.cityRepository.findOne({
         where: {
             name: cityName,
-            province: { // Filtrar por el nombre de la provincia relacionada
+            province: {
                 name: provinceName,
             }
         },
-        relations: ['province'], // Cargar la provincia para asegurar el filtro y para la respuesta
+        relations: ['province', 'province.country'],
       });
+      return city ? (returnEntity ? city : this.mapToResponseDto(city)) : null;
     } else {
-      // Si no se proporciona provinceName, buscar solo por nombre de ciudad.
-      // Esto podría devolver múltiples resultados si varias provincias tienen una ciudad con ese nombre.
-      // findOne devolverá la primera que encuentre. Si necesitas manejar múltiples, usa find.
       const cities = await this.cityRepository.find({
         where: queryOptions,
-        relations: ['province'], // Cargar provincia para dar más contexto
+        relations: ['province', 'province.country'],
       });
       if (cities.length > 1) {
         this.logger.warn(`Múltiples ciudades encontradas con el nombre '${cityName}'. Se recomienda especificar la provincia.`);
-        // Podrías lanzar un error aquí o devolver la primera. Por ahora, devolvemos la primera.
-        return cities[0];
+        return cities[0] ? (returnEntity ? cities[0] : this.mapToResponseDto(cities[0])) : null;
       }
-      return cities.length > 0 ? cities[0] : null;
+      return cities.length > 0 ? (returnEntity ? cities[0] : this.mapToResponseDto(cities[0])) : null;
     }
   }
 
-
-  async findOneByNameAndProvinceId(name: string, provinceId: number, loadRelations: boolean = false): Promise<City | null> {
+  async findOneByNameAndProvinceId(name: string, provinceId: number, loadOtherRelations: boolean = false, returnEntity: boolean = false): Promise<City | CityResponseDto | null> {
     this.logger.debug(`Buscando ciudad por nombre '${name}' y provinceId '${provinceId}'`);
     const city = await this.cityRepository.findOne({
         where: {
             name: name,
             provinceId: provinceId
         },
-        relations: loadRelations ? this.defaultRelations : ['province'],
+        relations: ['province', 'province.country'],
     });
 
     if (!city) {
         this.logger.log(`Ciudad con nombre '${name}' y provinceId '${provinceId}' no encontrada.`);
         return null;
     }
-    return city;
+    return city ? (returnEntity ? city : this.mapToResponseDto(city)) : null;
   }
 
-  async updatePut(id: number, updateDto: UpdatePutCityDto): Promise<City> {
+  // MODIFICADO: Añadido paginationDto
+  async searchByName(term: string, paginationDto: PaginationDto): Promise<PaginatedResponseDto<CityResponseDto>> {
+    this.logger.debug(`Buscando ciudades por término: ${term}`);
+    if (!term || term.trim() === "") {
+      throw new BadRequestException('El término de búsqueda no puede estar vacío.');
+    }
+
+    const { page = 1, limit = 10, sortBy, sortOrder } = paginationDto;
+    const skip = (page - 1) * limit;
+
+    const findOptions: FindManyOptions<City> = {
+      where: { name: ILike(`%${term}%`) },
+      relations: this.defaultRelations,
+      skip: skip,
+      take: limit,
+    };
+
+    if (sortBy) {
+      const allowedSortFields = ['id', 'name', 'latitude', 'longitude', 'provinceId'];
+      if (!allowedSortFields.includes(sortBy)) {
+        throw new BadRequestException(`El campo de ordenamiento '${sortBy}' no es válido.`);
+      }
+      findOptions.order = { [sortBy]: sortOrder || 'ASC' };
+    } else {
+      findOptions.order = { id: 'ASC' };
+    }
+
+    const [cities, total] = await this.cityRepository.findAndCount(findOptions);
+    const mappedCities = cities.map(city => this.mapToResponseDto(city));
+    return new PaginatedResponseDto<CityResponseDto>(mappedCities, total, page, limit);
+  }
+
+  async updatePut(id: number, updateDto: UpdatePutCityDto): Promise<CityResponseDto> {
     this.logger.debug(`Actualizando (PUT) ciudad ID: ${id}`);
-    const cityToUpdate = await this.findOne(id, false);
+    const cityToUpdate = await this.cityRepository.findOne({ where: {id}, relations: ['province', 'province.country'] });
+    if (!cityToUpdate) throw new NotFoundException(`Ciudad con ID ${id} no encontrada.`);
+
     const province = await this.findProvinceById(updateDto.provinceId);
 
     if (updateDto.latitude !== cityToUpdate.latitude || updateDto.longitude !== cityToUpdate.longitude) {
-        const existingByCoords = await this.cityRepository.findOne({
+        const existing = await this.cityRepository.findOne({
             where: { latitude: updateDto.latitude, longitude: updateDto.longitude, id: Not(id) }
         });
-        if (existingByCoords) {
+        if (existing) {
             throw new ConflictException(`La ubicación (latitud/longitud) ya está registrada para otra ciudad.`);
         }
     }
     if (updateDto.name !== cityToUpdate.name || updateDto.provinceId !== cityToUpdate.provinceId) {
-        const existingNominal = await this.cityRepository.findOne({
+        const existing = await this.cityRepository.findOne({
             where: { name: updateDto.name, provinceId: updateDto.provinceId, id: Not(id) }
         });
-        if (existingNominal) {
+        if (existing) {
             throw new ConflictException(`La combinación de nombre '${updateDto.name}' y provincia ya existe para otra ciudad.`);
         }
     }
@@ -202,13 +264,14 @@ export class CitiesService {
 
     const updatedCity = await this.cityRepository.save(cityToUpdate);
     this.logger.log(`Ciudad ID ${updatedCity.id} actualizada (PUT).`);
-    return this.findOne(updatedCity.id, true);
+    const reloadedUpdated = await this.cityRepository.findOne({ where: {id: updatedCity.id }, relations: ['province', 'province.country'] });
+    if (!reloadedUpdated) throw new NotFoundException('No se pudo recargar la ciudad actualizada.');
+    return this.mapToResponseDto(reloadedUpdated);
   }
 
-  async updatePatch(id: number, updateDto: UpdateCityDto): Promise<City> {
+  async updatePatch(id: number, updateDto: UpdateCityDto): Promise<CityResponseDto> {
     this.logger.debug(`Actualizando (PATCH) ciudad ID: ${id}`);
-    const cityToUpdate = await this.cityRepository.findOne({ where: {id}, relations: ['province']});
-
+    const cityToUpdate = await this.cityRepository.findOne({ where: {id}, relations: ['province', 'province.country']});
     if (!cityToUpdate) {
       this.logger.warn(`Ciudad ID ${id} no encontrada para PATCH.`);
       throw new NotFoundException(`Ciudad con ID ${id} no encontrada.`);
@@ -237,10 +300,10 @@ export class CitiesService {
     }
 
     if (coordsChanged) {
-        const existingByCoords = await this.cityRepository.findOne({
+        const existing = await this.cityRepository.findOne({
             where: { latitude: cityToUpdate.latitude, longitude: cityToUpdate.longitude, id: Not(id) }
         });
-        if (existingByCoords) {
+        if (existing) {
             throw new ConflictException(`La ubicación (latitud/longitud) ya está registrada para otra ciudad.`);
         }
     }
@@ -255,12 +318,19 @@ export class CitiesService {
 
     const updatedCity = await this.cityRepository.save(cityToUpdate);
     this.logger.log(`Ciudad ID ${updatedCity.id} actualizada (PATCH).`);
-    return this.findOne(updatedCity.id, true);
+    const reloadedUpdated = await this.cityRepository.findOne({ where: {id: updatedCity.id }, relations: ['province', 'province.country'] });
+    if (!reloadedUpdated) throw new NotFoundException('No se pudo recargar la ciudad actualizada.');
+    return this.mapToResponseDto(reloadedUpdated);
   }
 
   async remove(id: number): Promise<{ message: string }> {
     this.logger.debug(`Eliminando ciudad ID: ${id}`);
-    const city = await this.findOne(id, true);
+    const city = await this.cityRepository.findOne({ where: {id}, relations: ['persons'] });
+    if (!city) {
+        this.logger.warn(`Ciudad ID ${id} no encontrada para eliminar.`);
+        throw new NotFoundException(`Ciudad con ID ${id} no encontrada.`);
+    }
+
     if (city.persons && city.persons.length > 0) {
         this.logger.warn(`No se puede eliminar la ciudad ID ${id} porque tiene personas asociadas.`);
         throw new ConflictException(`No se puede eliminar la ciudad '${city.name}' porque tiene personas asociadas. Reasigne las personas primero.`);

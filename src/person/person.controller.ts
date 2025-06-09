@@ -11,8 +11,10 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { PersonRole } from './entities/person.entity';
-// Importar la interfaz desde el nuevo archivo
-import { PersonResponseDto } from './interfaces/person.interfaces'; 
+import { PersonResponseDto } from './interfaces/person.interfaces';
+
+import { PaginationDto } from '../common/dto/pagination.dto'; // NUEVO
+import { PaginatedResponseDto } from '../common/dto/paginated-response.dto'; // NUEVO
 
 @Controller('persons')
 @UseGuards(JwtAuthGuard)
@@ -33,20 +35,24 @@ export class PersonController {
   @Get()
   @UseGuards(RolesGuard)
   @Roles(PersonRole.ADMIN, PersonRole.MODERATOR)
-  findAll(): Promise<PersonResponseDto[]> {
-    this.logger.log('Buscando todas las personas');
-    return this.personService.findAll();
+  findAll(@Query() paginationDto: PaginationDto): Promise<PaginatedResponseDto<PersonResponseDto>> { // MODIFICADO
+    this.logger.log(`Buscando todas las personas con paginación: ${JSON.stringify(paginationDto)}`);
+    return this.personService.findAll(paginationDto); // MODIFICADO
   }
 
   @Get('search')
   @UseGuards(RolesGuard)
   @Roles(PersonRole.ADMIN, PersonRole.MODERATOR)
-  searchByName(@Query('name') name: string): Promise<PersonResponseDto[]> {
-    this.logger.log(`Buscando personas por nombre: ${name}`);
+  async searchByName( // MODIFICADO (se añadió async)
+    @Query() paginationDto: PaginationDto // NUEVO: ahora todos los params de búsqueda van en paginationDto
+  ): Promise<PaginatedResponseDto<PersonResponseDto>> { // MODIFICADO
+    const name = paginationDto.name; // Obtiene 'name' del DTO de paginación
+    this.logger.log(`Buscando personas por nombre: ${name} con paginación: ${JSON.stringify(paginationDto)}`);
     if (!name || name.trim() === '') {
-      throw new BadRequestException('El parámetro de búsqueda "name" no puede estar vacío.');
+      // Si el término de búsqueda está vacío, devuelve una respuesta paginada vacía
+      throw new BadRequestException('El término de búsqueda "name" no puede estar vacío para esta operación.');
     }
-    return this.personService.findByName(name);
+    return this.personService.findByName(name, paginationDto); // MODIFICADO
   }
 
   @Get(':id')
@@ -71,12 +77,12 @@ export class PersonController {
   @Patch(':id')
   @UseGuards(RolesGuard)
   @Roles(PersonRole.ADMIN)
-  updatePatch( // Nombre del método en el controlador
+  updatePatch(
     @Param('id', ParseIntPipe) id: number,
     @Body() updatePatchPersonDto: UpdatePatchPersonDto,
   ): Promise<PersonResponseDto> {
     this.logger.log(`Actualizando (PATCH) persona ID: ${id}`);
-    return this.personService.update(id, updatePatchPersonDto); // Llama al método 'update' del servicio
+    return this.personService.update(id, updatePatchPersonDto);
   }
 
   @Delete(':id')
