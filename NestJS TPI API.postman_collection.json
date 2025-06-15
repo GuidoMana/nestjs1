@@ -185,13 +185,19 @@
 						"method": "GET",
 						"header": [],
 						"url": {
-							"raw": "{{baseUrl}}/persons/1",
+							"raw": "{{baseUrl}}/persons/:id",
 							"host": [
 								"{{baseUrl}}"
 							],
 							"path": [
 								"persons",
-								"1"
+								":id"
+							],
+							"variable": [
+								{
+									"key": "id",
+									"value": "1"
+								}
 							]
 						},
 						"description": "Obtiene una persona por su ID. Requiere rol ADMIN o MODERATOR (o lógica más fina)."
@@ -251,16 +257,22 @@
 						],
 						"body": {
 							"mode": "raw",
-							"raw": "{\n    \"firstName\": \"Guido Alberto\",\n    \"lastName\": \"Mana\",\n    \"email\": \"guidomana.updated@example.com\",\n    \"birthDate\": \"1990-01-16\",\n    \"cityId\": 1,\n    \"role\": \"user\"\n}"
+							"raw": "{\n    \"firstName\": \"Guido Alberto\",\n    \"lastName\": \"Mana\",\n    \"email\": \"guidomana.updated@example.com\",\n    \"birthDate\": \"1990-01-16\",\n    \"cityId\": 1,\n    \"role\": \"admin\"\n}"
 						},
 						"url": {
-							"raw": "{{baseUrl}}/persons/1",
+							"raw": "{{baseUrl}}/persons/:id",
 							"host": [
 								"{{baseUrl}}"
 							],
 							"path": [
 								"persons",
-								"1"
+								":id"
+							],
+							"variable": [
+								{
+									"key": "id",
+									"value": "1"
+								}
 							]
 						},
 						"description": "Reemplaza completamente una persona. Requiere rol ADMIN."
@@ -282,13 +294,19 @@
 							"raw": "{\n    \"lastName\": \"Mana Actualizado\",\n    \"newPassword\": \"NewSecurePassword123!\"\n}"
 						},
 						"url": {
-							"raw": "{{baseUrl}}/persons/1",
+							"raw": "{{baseUrl}}/persons/:id",
 							"host": [
 								"{{baseUrl}}"
 							],
 							"path": [
 								"persons",
-								"1"
+								":id"
+							],
+							"variable": [
+								{
+									"key": "id",
+									"value": "1"
+								}
 							]
 						},
 						"description": "Actualiza parcialmente una persona. Requiere rol ADMIN."
@@ -312,7 +330,7 @@
 							"variable": [
 								{
 									"key": "id",
-									"value": "3"
+									"value": "2"
 								}
 							]
 						},
@@ -338,15 +356,15 @@
 						],
 						"body": {
 							"mode": "raw",
-							"raw": "{\n    \"name\": \"Villa María\",\n    \"provinceId\": 1 \n}"
+							"raw": "{\n    \"name\": \"Villa María\",\n    \"latitude\": -32.4031012852999,\n    \"longitude\": -63.2366303163218,\n    \"provinceId\": 21 \n}"
 						},
 						"url": {
-							"raw": "{{baseUrl}}/city",
+							"raw": "{{baseUrl}}/cities",
 							"host": [
 								"{{baseUrl}}"
 							],
 							"path": [
-								"city"
+								"cities"
 							]
 						},
 						"description": "Crea una nueva ciudad. Requiere rol ADMIN."
@@ -359,12 +377,12 @@
 						"method": "GET",
 						"header": [],
 						"url": {
-							"raw": "{{baseUrl}}/city?page=2&limit=5&sortBy=id&sortOrder=ASC",
+							"raw": "{{baseUrl}}/cities?page=2&limit=5&sortBy=id&sortOrder=ASC",
 							"host": [
 								"{{baseUrl}}"
 							],
 							"path": [
-								"city"
+								"cities"
 							],
 							"query": [
 								{
@@ -395,13 +413,19 @@
 						"method": "GET",
 						"header": [],
 						"url": {
-							"raw": "{{baseUrl}}/city/1",
+							"raw": "{{baseUrl}}/cities/:id",
 							"host": [
 								"{{baseUrl}}"
 							],
 							"path": [
-								"city",
-								"1"
+								"cities",
+								":id"
+							],
+							"variable": [
+								{
+									"key": "id",
+									"value": "1125"
+								}
 							]
 						},
 						"description": "Obtiene una ciudad por su ID. Requiere autenticación."
@@ -414,12 +438,12 @@
 						"method": "GET",
 						"header": [],
 						"url": {
-							"raw": "{{baseUrl}}/city/search?name=a&sortBy=name&sortOrder=ASC&page=1&limit=6",
+							"raw": "{{baseUrl}}/cities/search?name=a&sortBy=name&sortOrder=ASC&page=1&limit=6",
 							"host": [
 								"{{baseUrl}}"
 							],
 							"path": [
-								"city",
+								"cities",
 								"search"
 							],
 							"query": [
@@ -461,16 +485,22 @@
 						],
 						"body": {
 							"mode": "raw",
-							"raw": "{\n    \"name\": \"Villa María Updated\",\n    \"provinceId\": 1\n}"
+							"raw": "{\n    \"name\": \"Villa María Updated\",\n    \"latitude\": -32.403101252999,\n    \"longitude\": -63.236630163218,\n    \"provinceId\": 1\n}"
 						},
 						"url": {
-							"raw": "{{baseUrl}}/city/1",
+							"raw": "{{baseUrl}}/cities/:id",
 							"host": [
 								"{{baseUrl}}"
 							],
 							"path": [
-								"city",
-								"1"
+								"cities",
+								":id"
+							],
+							"variable": [
+								{
+									"key": "id",
+									"value": "2083"
+								}
 							]
 						},
 						"description": "Reemplaza una ciudad. Requiere rol ADMIN."
@@ -492,13 +522,19 @@
 							"raw": "{\n    \"name\": \"Villa María Patched\"\n}"
 						},
 						"url": {
-							"raw": "{{baseUrl}}/city/1",
+							"raw": "{{baseUrl}}/cities/:id",
 							"host": [
 								"{{baseUrl}}"
 							],
 							"path": [
-								"city",
-								"1"
+								"cities",
+								":id"
+							],
+							"variable": [
+								{
+									"key": "id",
+									"value": "2083"
+								}
 							]
 						},
 						"description": "Actualiza parcialmente una ciudad. Requiere rol ADMIN."
@@ -511,13 +547,19 @@
 						"method": "DELETE",
 						"header": [],
 						"url": {
-							"raw": "{{baseUrl}}/city/1",
+							"raw": "{{baseUrl}}/cities/:id",
 							"host": [
 								"{{baseUrl}}"
 							],
 							"path": [
-								"city",
-								"1"
+								"cities",
+								":id"
+							],
+							"variable": [
+								{
+									"key": "id",
+									"value": "2083"
+								}
 							]
 						},
 						"description": "Elimina una ciudad. Requiere rol ADMIN."
@@ -542,7 +584,7 @@
 						],
 						"body": {
 							"mode": "raw",
-							"raw": "{\n    \"name\": \"Córdoba\",\n    \"countryId\": 1 \n}"
+							"raw": "{\n    \"name\": \"Córdoba\",\n    \"latitude\": -32.1447993873859,\n    \"longitude\": -63.801973466573,\n    \"countryId\": 1 \n}"
 						},
 						"url": {
 							"raw": "{{baseUrl}}/provinces",
@@ -597,15 +639,28 @@
 					"name": "Get Province by ID",
 					"request": {
 						"method": "GET",
-						"header": [],
+						"header": [
+							{
+								"key": "",
+								"value": "",
+								"type": "text",
+								"disabled": true
+							}
+						],
 						"url": {
-							"raw": "{{baseUrl}}/provinces/1",
+							"raw": "{{baseUrl}}/provinces/:id",
 							"host": [
 								"{{baseUrl}}"
 							],
 							"path": [
 								"provinces",
-								"1"
+								":id"
+							],
+							"variable": [
+								{
+									"key": "id",
+									"value": "25"
+								}
 							]
 						},
 						"description": "Obtiene una provincia por su ID. Requiere autenticación. `loadRelations=true` es opcional."
@@ -665,16 +720,22 @@
 						],
 						"body": {
 							"mode": "raw",
-							"raw": "{\n    \"name\": \"Córdoba Updated\",\n    \"countryId\": 1\n}"
+							"raw": "{\n    \"name\": \"Córdoba Updated\",\n    \"latitude\": -32.144993873859,\n    \"longitude\": -63.80973466573,\n    \"countryId\": 1\n}"
 						},
 						"url": {
-							"raw": "{{baseUrl}}/provinces/1",
+							"raw": "{{baseUrl}}/provinces/:id",
 							"host": [
 								"{{baseUrl}}"
 							],
 							"path": [
 								"provinces",
-								"1"
+								":id"
+							],
+							"variable": [
+								{
+									"key": "id",
+									"value": "25"
+								}
 							]
 						},
 						"description": "Reemplaza una provincia. Requiere rol ADMIN."
@@ -696,13 +757,19 @@
 							"raw": "{\n    \"name\": \"Córdoba Patched\"\n}"
 						},
 						"url": {
-							"raw": "{{baseUrl}}/provinces/1",
+							"raw": "{{baseUrl}}/provinces/:id",
 							"host": [
 								"{{baseUrl}}"
 							],
 							"path": [
 								"provinces",
-								"1"
+								":id"
+							],
+							"variable": [
+								{
+									"key": "id",
+									"value": "25"
+								}
 							]
 						},
 						"description": "Actualiza parcialmente una provincia. Requiere rol ADMIN."
@@ -715,13 +782,19 @@
 						"method": "DELETE",
 						"header": [],
 						"url": {
-							"raw": "{{baseUrl}}/provinces/1",
+							"raw": "{{baseUrl}}/provinces/:id",
 							"host": [
 								"{{baseUrl}}"
 							],
 							"path": [
 								"provinces",
-								"1"
+								":id"
+							],
+							"variable": [
+								{
+									"key": "id",
+									"value": "25"
+								}
 							]
 						},
 						"description": "Elimina una provincia. Requiere rol ADMIN."
@@ -746,7 +819,7 @@
 						],
 						"body": {
 							"mode": "raw",
-							"raw": "{\n    \"name\": \"Argentina\",\n    \"code\": \"AR\"\n}"
+							"raw": "{\n    \"name\": \"Uruguay\",\n    \"code\": \"UR\"\n}"
 						},
 						"url": {
 							"raw": "{{baseUrl}}/countries",
@@ -767,18 +840,12 @@
 						"method": "GET",
 						"header": [],
 						"url": {
-							"raw": "{{baseUrl}}/countries?loadProvinces=true",
+							"raw": "{{baseUrl}}/countries",
 							"host": [
 								"{{baseUrl}}"
 							],
 							"path": [
 								"countries"
-							],
-							"query": [
-								{
-									"key": "loadProvinces",
-									"value": "true"
-								}
 							]
 						},
 						"description": "Obtiene todos los países. Requiere autenticación. `loadProvinces=true` es opcional."
@@ -791,13 +858,19 @@
 						"method": "GET",
 						"header": [],
 						"url": {
-							"raw": "{{baseUrl}}/countries/1",
+							"raw": "{{baseUrl}}/countries/:id",
 							"host": [
 								"{{baseUrl}}"
 							],
 							"path": [
 								"countries",
-								"1"
+								":id"
+							],
+							"variable": [
+								{
+									"key": "id",
+									"value": "2"
+								}
 							]
 						},
 						"description": "Obtiene un país por su ID. Requiere autenticación. `loadProvinces=true` es opcional."
@@ -857,16 +930,22 @@
 						],
 						"body": {
 							"mode": "raw",
-							"raw": "{\n    \"name\": \"Argentina Updated\",\n    \"code\": \"ARG\"\n}"
+							"raw": "{\n    \"name\": \"Uruguay Updated\",\n    \"code\": \"URG\"\n}"
 						},
 						"url": {
-							"raw": "{{baseUrl}}/countries/1",
+							"raw": "{{baseUrl}}/countries/:id",
 							"host": [
 								"{{baseUrl}}"
 							],
 							"path": [
 								"countries",
-								"1"
+								":id"
+							],
+							"variable": [
+								{
+									"key": "id",
+									"value": "2"
+								}
 							]
 						},
 						"description": "Reemplaza un país. Requiere rol ADMIN."
@@ -885,16 +964,22 @@
 						],
 						"body": {
 							"mode": "raw",
-							"raw": "{\n    \"name\": \"Argentina Patched\"\n}"
+							"raw": "{\n    \"name\": \"Uruguay Patched\"\n}"
 						},
 						"url": {
-							"raw": "{{baseUrl}}/countries/1",
+							"raw": "{{baseUrl}}/countries/:id",
 							"host": [
 								"{{baseUrl}}"
 							],
 							"path": [
 								"countries",
-								"1"
+								":id"
+							],
+							"variable": [
+								{
+									"key": "id",
+									"value": "2"
+								}
 							]
 						},
 						"description": "Actualiza parcialmente un país. Requiere rol ADMIN."
@@ -907,13 +992,19 @@
 						"method": "DELETE",
 						"header": [],
 						"url": {
-							"raw": "{{baseUrl}}/countries/1",
+							"raw": "{{baseUrl}}/countries/:id",
 							"host": [
 								"{{baseUrl}}"
 							],
 							"path": [
 								"countries",
-								"1"
+								":id"
+							],
+							"variable": [
+								{
+									"key": "id",
+									"value": "2"
+								}
 							]
 						},
 						"description": "Elimina un país. Requiere rol ADMIN."

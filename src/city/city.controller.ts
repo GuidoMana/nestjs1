@@ -16,7 +16,7 @@ import { CityResponseDto } from './interfaces/city.interfaces';
 import { PaginationDto } from '../common/dto/pagination.dto'; // NUEVO
 import { PaginatedResponseDto } from '../common/dto/paginated-response.dto'; // NUEVO
 
-@Controller('city')
+@Controller('cities')
 @UseGuards(JwtAuthGuard)
 export class CitiesController {
   private readonly logger = new Logger(CitiesController.name);

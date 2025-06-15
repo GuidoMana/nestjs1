@@ -3,7 +3,7 @@ import { Controller, Post, Body, Res, HttpCode, HttpStatus, UsePipes, Validation
 import { AuthService } from './auth.service';
 import { Response, Request } from 'express';
 import { LoginDto } from './dto/login.dto';
-import { RegisterPersonDto } from './dto/register-person.dto'; // Importar el nuevo DTO
+import { RegisterPersonDto } from './dto/register-person.dto'; 
 import { ConfigService } from '@nestjs/config';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 
@@ -17,7 +17,7 @@ export class AuthController {
   ) {}
 
   @Post('register')
-  @HttpCode(HttpStatus.CREATED) // Código 201 para creación exitosa
+  @HttpCode(HttpStatus.CREATED)
   @UsePipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }))
   async register(@Body() registerPersonDto: RegisterPersonDto) {
     this.logger.log(`Intento de registro para el email: ${registerPersonDto.email}`);
