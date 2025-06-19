@@ -43,10 +43,6 @@ import { DataSeedingModule } from './database/data-seeding/data-seeding.module';
 
         logging: configService.get<string>('TYPEORM_LOGGING') === 'true',
         
-        // Opcional: Especificar explícitamente la ruta a las migraciones si no usas `autoLoadEntities`
-        // o si la CLI de TypeORM no las encuentra automáticamente con el data-source.ts.
-        // migrations: [__dirname + '/../database/migrations/*{.ts,.js}'], // Ajusta la ruta según tu estructura
-        // migrationsTableName: 'migrations_history', // Nombre personalizado para la tabla de historial de migraciones (opcional)
       }),
     }),
     AuthModule,
